@@ -4,7 +4,7 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 
 # Configuración básica de la aplicación
-st.set_page_config(page_title="Control de Gastos", layout="wide")
+st.set_page_config(page_title="Mis Finanzas", page_icon="📱", layout="wide")
 
 # Conectar a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
