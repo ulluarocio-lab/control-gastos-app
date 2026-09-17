@@ -141,19 +141,36 @@ elif menu == "⚙️ Gastos Fijos":
 # --- PANTALLA: DEUDAS ---
 elif menu == "🏦 Panel de Deudas":
     st.title("🏦 Panel de Deudas")
+    st.write("Gestiona tus deudas activas. Modifica el saldo o descuenta las cuotas cada mes.")
     
     try:
+        # Leer y limpiar datos de deudas activas
         df_deudas_activas = conn.read(spreadsheet=SHEET_URL, worksheet="Deudas_Activas")
         df_deudas_activas = df_deudas_activas.dropna(subset=['Deuda'])
         
         st.subheader("🔴 Deudas Activas")
-        if not df_deudas_activas.empty:
-            st.dataframe(df_deudas_activas, use_container_width=True)
-        else:
-            st.success("¡No tienes deudas activas registradas!")
+        
+        # Crear editor interactivo para las deudas
+        df_deudas_edit = st.data_editor(
+            df_deudas_activas, 
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "Saldo_Total": st.column_config.NumberColumn("Saldo Total ($)", min_value=0, step=1000),
+                "Cuota_Mensual": st.column_config.NumberColumn("Cuota Mensual ($)", min_value=0, step=1000),
+                "Cuotas_Restantes": st.column_config.NumberColumn("Cuotas Restantes", min_value=0, step=1)
+            }
+        )
+        
+        # Botón para guardar cambios
+        if st.button("💾 Guardar Cambios en Deudas"):
+            conn.update(worksheet="Deudas_Activas", data=df_deudas_edit)
+            st.success("¡Deudas actualizadas correctamente!")
+            st.cache_data.clear()
             
         st.markdown("---")
         
+        # Leer y mostrar deudas saldadas
         df_deudas_saldadas = conn.read(spreadsheet=SHEET_URL, worksheet="Deudas_Saldadas")
         df_deudas_saldadas = df_deudas_saldadas.dropna(subset=['Deuda'])
         
@@ -161,7 +178,7 @@ elif menu == "🏦 Panel de Deudas":
         if not df_deudas_saldadas.empty:
             st.dataframe(df_deudas_saldadas, use_container_width=True)
         else:
-            st.info("Aquí aparecerán las deudas que logres cancelar.")
+            st.info("Aquí aparecerán las deudas que logres cancelar. ¡Cada vez falta menos!")
             
     except Exception as e:
-        st.warning("Asegúrate de haber creado las pestañas 'Deudas_Activas' y 'Deudas_Saldadas'.")
+        st.warning(f"Asegúrate de tener las columnas correctas en tu Excel. Detalle: {e}")
