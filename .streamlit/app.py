@@ -25,7 +25,7 @@ MEDIOS_DE_PAGO = [
 
 # --- MENÚ LATERAL ---
 st.sidebar.title("Navegación")
-menu = st.sidebar.radio("Ir a:", ["📊 Dashboard", "💸 Cargar Gasto", "🏦 Panel de Deudas"])
+menu = st.sidebar.radio("Ir a:", ["📊 Dashboard", "💸 Cargar Gasto", "⚙️ Gastos Fijos", "🏦 Panel de Deudas"])
 
 # --- PANTALLA: DASHBOARD ---
 if menu == "📊 Dashboard":
@@ -34,8 +34,6 @@ if menu == "📊 Dashboard":
     try:
         # Leer datos de la pestaña "Transacciones"
         df_transacciones = conn.read(spreadsheet=SHEET_URL, worksheet="Transacciones")
-        
-        # Limpiar filas vacías basándonos en la columna 'Monto'
         df_transacciones = df_transacciones.dropna(subset=['Monto'])
         
         if not df_transacciones.empty:
@@ -64,7 +62,7 @@ if menu == "📊 Dashboard":
             st.info("Aún no hay gastos registrados. Ve a 'Cargar Gasto' para empezar.")
             
     except Exception as e:
-        st.error(f"Error al conectar con Google Sheets. Asegúrate de haber compartido el archivo con el correo de la cuenta de servicio. Detalle del error: {e}")
+        st.error(f"Error al conectar con Google Sheets. Detalle: {e}")
 
 # --- PANTALLA: CARGAR GASTO ---
 elif menu == "💸 Cargar Gasto":
@@ -81,7 +79,7 @@ elif menu == "💸 Cargar Gasto":
         
         if enviado:
             if monto > 0 and desc:
-                # Leer los datos actuales para no sobrescribirlos
+                # Leer los datos actuales
                 df_actual = conn.read(spreadsheet=SHEET_URL, worksheet="Transacciones")
                 
                 # Crear una nueva fila con el gasto ingresado
@@ -100,8 +98,45 @@ elif menu == "💸 Cargar Gasto":
                 conn.update(worksheet="Transacciones", data=df_actualizado)
                 
                 st.success(f"✅ Gasto de ${monto} en '{desc}' guardado exitosamente.")
+                st.cache_data.clear() # Refresca los datos en segundo plano
             else:
                 st.error("Por favor, ingresa una descripción y un monto mayor a 0.")
+
+# --- PANTALLA: GASTOS FIJOS ---
+elif menu == "⚙️ Gastos Fijos":
+    st.title("⚙️ Administrar Gastos Fijos")
+    st.write("Edita los montos de tus servicios o actividades directamente en la tabla.")
+    
+    try:
+        # Leer la pestaña de gastos fijos
+        df_fijos = conn.read(spreadsheet=SHEET_URL, worksheet="Gastos_Fijos")
+        df_fijos = df_fijos.dropna(subset=['Concepto'])
+        
+        # Filtro automático para excluir tarjetas de crédito si las cargaste en Sheets
+        df_fijos = df_fijos[~df_fijos['Concepto'].str.contains("Tarjeta", case=False, na=False)]
+        
+        # Crear un editor interactivo
+        df_editado = st.data_editor(
+            df_fijos, 
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "Monto": st.column_config.NumberColumn("Monto ($)", min_value=0, step=1000)
+            }
+        )
+        
+        # Botón para guardar los cambios
+        if st.button("💾 Guardar Cambios en Gastos Fijos"):
+            conn.update(worksheet="Gastos_Fijos", data=df_editado)
+            st.success("¡Montos actualizados correctamente!")
+            st.cache_data.clear()
+            
+        st.markdown("---")
+        total_fijos = pd.to_numeric(df_editado['Monto'], errors='coerce').sum()
+        st.info(f"**Total estimado de Gastos Fijos (Servicios y Actividades):** ${total_fijos:,.2f}")
+        
+    except Exception as e:
+        st.warning(f"Asegúrate de haber creado la pestaña 'Gastos_Fijos' en tu Excel. Detalle: {e}")
 
 # --- PANTALLA: DEUDAS ---
 elif menu == "🏦 Panel de Deudas":
@@ -129,4 +164,4 @@ elif menu == "🏦 Panel de Deudas":
             st.info("Aquí aparecerán las deudas que logres cancelar.")
             
     except Exception as e:
-        st.warning("Para ver este panel, asegúrate de haber creado las pestañas 'Deudas_Activas' y 'Deudas_Saldadas' en tu Google Sheets.")
+        st.warning("Asegúrate de haber creado las pestañas 'Deudas_Activas' y 'Deudas_Saldadas'.")
