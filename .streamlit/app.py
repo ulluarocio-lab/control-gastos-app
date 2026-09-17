@@ -94,8 +94,8 @@ elif menu == "💸 Cargar Gasto":
                 # Unir el historial con el nuevo gasto
                 df_actualizado = pd.concat([df_actual, nuevo_dato], ignore_index=True)
                 
-                # Enviar la actualización a Google Sheets
-                conn.update(worksheet="Transacciones", data=df_actualizado)
+                # Enviar la actualización a Google Sheets (Corrección aplicada aquí)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Transacciones", data=df_actualizado)
                 
                 st.success(f"✅ Gasto de ${monto} en '{desc}' guardado exitosamente.")
                 st.cache_data.clear() # Refresca los datos en segundo plano
@@ -112,7 +112,7 @@ elif menu == "⚙️ Gastos Fijos":
         df_fijos = conn.read(spreadsheet=SHEET_URL, worksheet="Gastos_Fijos")
         df_fijos = df_fijos.dropna(subset=['Concepto'])
         
-        # Filtro automático para excluir tarjetas de crédito si las cargaste en Sheets
+        # Filtro automático para excluir tarjetas de crédito
         df_fijos = df_fijos[~df_fijos['Concepto'].str.contains("Tarjeta", case=False, na=False)]
         
         # Crear un editor interactivo
@@ -125,9 +125,9 @@ elif menu == "⚙️ Gastos Fijos":
             }
         )
         
-        # Botón para guardar los cambios
+        # Botón para guardar los cambios (Corrección aplicada aquí)
         if st.button("💾 Guardar Cambios en Gastos Fijos"):
-            conn.update(worksheet="Gastos_Fijos", data=df_editado)
+            conn.update(spreadsheet=SHEET_URL, worksheet="Gastos_Fijos", data=df_editado)
             st.success("¡Montos actualizados correctamente!")
             st.cache_data.clear()
             
@@ -162,9 +162,9 @@ elif menu == "🏦 Panel de Deudas":
             }
         )
         
-        # Botón para guardar cambios
+        # Botón para guardar cambios (Corrección aplicada aquí)
         if st.button("💾 Guardar Cambios en Deudas"):
-            conn.update(worksheet="Deudas_Activas", data=df_deudas_edit)
+            conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_edit)
             st.success("¡Deudas actualizadas correctamente!")
             st.cache_data.clear()
             
