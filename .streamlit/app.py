@@ -24,7 +24,6 @@ menu = st.sidebar.radio("Ir a:", ["📊 Dashboard Analítico", "💸 Cargar Gast
 if menu == "📊 Dashboard Analítico":
     st.title("📊 Análisis Financiero Total")
     
-    # Ingreso del sueldo editable (Puedes cambiar el 1500000 por tu sueldo base real)
     st.sidebar.markdown("---")
     st.sidebar.subheader("💰 Tus Ingresos")
     sueldo = st.sidebar.number_input("Sueldo del mes ($)", min_value=0, value=1500000, step=50000)
@@ -48,31 +47,34 @@ if menu == "📊 Dashboard Analítico":
         # EL DISPONIBLE REAL
         disponible = sueldo - total_fijos - total_cuotas - total_variables
         
-        # --- SECCIÓN 1: EL DESGLOSE DE TU DINERO ---
+        # --- SECCIÓN 1: EL DESGLOSE DE TU DINERO (Corregido a visual positivo) ---
         st.subheader("Desglose de tu Dinero")
         
-        # Usamos 5 columnas para mostrar la resta paso a paso
         col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("1. Sueldo", f"${sueldo:,.0f}")
-        col2.metric("2. Gastos Fijos", f"- ${total_fijos:,.0f}")
-        col3.metric("3. Cuotas Deudas", f"- ${total_cuotas:,.0f}")
-        col4.metric("4. Variables (Día a Día)", f"- ${total_variables:,.0f}")
+        col2.metric("2. Gastos Fijos", f"${total_fijos:,.0f}")
+        col3.metric("3. Cuotas Deudas", f"${total_cuotas:,.0f}")
+        col4.metric("4. Variables Totales", f"${total_variables:,.0f}")
         
         if disponible >= 0:
-            col5.metric("✅ DISPONIBLE", f"${disponible:,.0f}")
+            col5.metric("✅ DISPONIBLE REAL", f"${disponible:,.0f}")
         else:
-            col5.metric("🚨 DISPONIBLE", f"${disponible:,.0f}", delta="En Rojo", delta_color="inverse")
+            col5.metric("🚨 DISPONIBLE REAL", f"${disponible:,.0f}", delta="En Rojo", delta_color="inverse")
             
         st.markdown("---")
         
-        # --- SECCIÓN 2: ALARMAS DE CRÉDITO ---
+        # --- SECCIÓN 2: ALARMAS DE CRÉDITO Y ACUMULADOS ---
         st.subheader("💳 Consumo a Crédito (A pagar próximo mes)")
         tarjetas = ["Tarjeta de Crédito - Provincia", "Tarjeta Naranja", "Tarjeta Visa - Santander"]
+        
+        # Calcular cuánto del gasto variable se hizo con crédito
         gasto_tarjetas = df_trans[df_trans['Medio_Pago'].isin(tarjetas)]['Monto'].sum()
         gasto_mc = df_trans[df_trans['Medio_Pago'] == 'Mercado Crédito']['Monto'].sum()
         
+        st.write("Todo lo que cargues en el formulario usando tarjetas o Mercado Crédito se irá sumando automáticamente aquí:")
+        
         c1, c2 = st.columns(2)
-        c1.info(f"**Total acumulado en Tarjetas:**\n### ${gasto_tarjetas:,.2f}")
+        c1.info(f"**Total acumulado en Tarjetas de Crédito:**\n### ${gasto_tarjetas:,.2f}")
         c2.warning(f"**Total acumulado en Mercado Crédito:**\n### ${gasto_mc:,.2f}")
         
         st.markdown("---")
@@ -139,7 +141,7 @@ elif menu == "⚙️ Gastos Fijos":
             st.success("¡Montos actualizados correctamente!")
             st.cache_data.clear()
             
-        st.info(f"**Total estimado de Gastos Fijos (Servicios y Actividades):** ${pd.to_numeric(df_editado['Monto'], errors='coerce').sum():,.2f}")
+        st.info(f"**Total estimado de Gastos Fijos:** ${pd.to_numeric(df_editado['Monto'], errors='coerce').sum():,.2f}")
     except Exception as e:
         st.warning(f"Error. Detalle: {e}")
 
