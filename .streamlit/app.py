@@ -6,6 +6,14 @@ from datetime import datetime
 # Configuración básica de la aplicación
 st.set_page_config(page_title="Mis Finanzas", page_icon="📱", layout="wide")
 
+# --- CONTROL DE ESTADO PARA OCULTAR/MOSTRAR SALDO ---
+if 'mostrar_saldo' not in st.session_state:
+    st.session_state.mostrar_saldo = False
+
+def formato_moneda(valor):
+    """Devuelve el valor formateado o asteriscos dependiendo del estado."""
+    return f"${valor:,.0f}" if st.session_state.mostrar_saldo else "$ ***"
+
 # Conectar a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1_lnER4_Y_BtLksTcwFv1tgfWqLupo5tU6aMjRwJrJBA/edit"
@@ -16,9 +24,11 @@ MEDIOS_DE_PAGO = [
     "Tarjeta de Crédito - Provincia", "Tarjeta Naranja", "Tarjeta Visa - Santander"
 ]
 
-# --- MENÚ LATERAL ---
-st.sidebar.title("Navegación")
-menu = st.sidebar.radio("Ir a:", ["📊 Dashboard Analítico", "💸 Cargar Gasto", "⚙️ Gastos Fijos", "🏦 Panel de Deudas"])
+# --- MENÚ PRINCIPAL HORIZONTAL (Optimizado para celular) ---
+menu = st.radio("Navegación", 
+                ["📊 Dashboard Analítico", "💸 Cargar Gasto", "⚙️ Gastos Fijos", "🏦 Panel de Deudas"], 
+                horizontal=True, 
+                label_visibility="collapsed")
 
 # --- LEER BASES DE DATOS GLOBALES ---
 try:
@@ -92,16 +102,22 @@ if menu == "📊 Dashboard Analítico":
     # --- SECCIÓN 1: EL DESGLOSE DE TU DINERO ---
     st.subheader("Desglose de tu Dinero")
     
+    # Botón para alternar visibilidad (El "Ojito")
+    if st.button("👁️ Mostrar / Ocultar Saldos"):
+        st.session_state.mostrar_saldo = not st.session_state.mostrar_saldo
+    
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("1. Sueldo", f"${nuevo_sueldo:,.0f}")
-    col2.metric("2. Gastos Fijos", f"${total_fijos:,.0f}")
-    col3.metric("3. Cuotas Deudas", f"${total_cuotas:,.0f}")
-    col4.metric("4. Variables Totales", f"${total_variables:,.0f}")
+    col1.metric("1. Sueldo", formato_moneda(nuevo_sueldo))
+    col2.metric("2. Gastos Fijos", formato_moneda(total_fijos))
+    col3.metric("3. Cuotas Deudas", formato_moneda(total_cuotas))
+    col4.metric("4. Variables Totales", formato_moneda(total_variables))
     
     if disponible >= 0:
-        col5.metric("✅ DISPONIBLE REAL", f"${disponible:,.0f}")
+        col5.metric("✅ DISPONIBLE REAL", formato_moneda(disponible))
     else:
-        col5.metric("🚨 DISPONIBLE REAL", f"${disponible:,.0f}", delta="En Rojo", delta_color="inverse")
+        # Ocultar también el delta (rojo) si está oculto el saldo
+        delta_texto = "En Rojo" if st.session_state.mostrar_saldo else None
+        col5.metric("🚨 DISPONIBLE REAL", formato_moneda(disponible), delta=delta_texto, delta_color="inverse")
         
     st.markdown("---")
     
@@ -113,8 +129,8 @@ if menu == "📊 Dashboard Analítico":
     gasto_mc = df_trans_mes[df_trans_mes['Medio_Pago'] == 'Mercado Crédito']['Monto'].sum()
     
     c1, c2 = st.columns(2)
-    c1.info(f"**Total acumulado en Tarjetas:**\n### ${gasto_tarjetas:,.2f}")
-    c2.warning(f"**Total acumulado en Mercado Crédito:**\n### ${gasto_mc:,.2f}")
+    c1.info(f"**Total acumulado en Tarjetas:**\n### {formato_moneda(gasto_tarjetas)}")
+    c2.warning(f"**Total acumulado en Mercado Crédito:**\n### {formato_moneda(gasto_mc)}")
     
     st.markdown("---")
     
@@ -129,7 +145,7 @@ if menu == "📊 Dashboard Analítico":
         with col_data:
             st.dataframe(gastos_categoria, use_container_width=True)
             ocio = gastos_categoria.get("Ocio/Salidas", 0)
-            st.success(f"🎭 **Entretenimiento:**\n${ocio:,.2f}")
+            st.success(f"🎭 **Entretenimiento:**\n{formato_moneda(ocio)}")
     else:
         st.write("No hay gastos registrados en este mes.")
         
@@ -171,13 +187,16 @@ elif menu == "⚙️ Gastos Fijos":
         conn.update(spreadsheet=SHEET_URL, worksheet="Gastos_Fijos", data=df_editado)
         st.success("¡Actualizado!")
         st.cache_data.clear()
-    st.info(f"**Total Fijos:** ${pd.to_numeric(df_editado['Monto'], errors='coerce').sum():,.2f}")
+    
+    total_fijos_vista = pd.to_numeric(df_editado['Monto'], errors='coerce').sum()
+    st.info(f"**Total Fijos:** {formato_moneda(total_fijos_vista)}")
 
 # --- PANTALLA: DEUDAS ---
 elif menu == "🏦 Panel de Deudas":
     st.title("🏦 Panel de Deudas")
     st.subheader("🔴 Deudas Activas")
-    df_deudas_edit = st.data_editor(df_deudas_activas, num_rows="dynamic", use_container_width=True,
+    # Nota: Corregí una pequeña variable aquí (df_deudas_activas a df_deudas) que daba error en el original
+    df_deudas_edit = st.data_editor(df_deudas, num_rows="dynamic", use_container_width=True,
                                     column_config={
                                         "Saldo_Total": st.column_config.NumberColumn("Saldo Total ($)", min_value=0, step=1000),
                                         "Cuota_Mensual": st.column_config.NumberColumn("Cuota Mensual ($)", min_value=0, step=1000),
