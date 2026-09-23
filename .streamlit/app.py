@@ -30,15 +30,16 @@ menu = st.radio("Navegación",
                 label_visibility="collapsed")
 
 # ==========================================
-# MOTOR DE CACHÉ (OPTIMIZACIÓN DE VELOCIDAD)
+# MOTOR DE CACHÉ (CORREGIDO CON TTL=0 INTERNO)
 # ==========================================
-@st.cache_data(ttl="10m") 
+@st.cache_data(ttl=600) 
 def cargar_datos_desde_sheets():
     try:
-        t = conn.read(spreadsheet=SHEET_URL, worksheet="Transacciones").dropna(subset=['Monto'])
-        f = conn.read(spreadsheet=SHEET_URL, worksheet="Gastos_Fijos").dropna(subset=['Concepto'])
-        d = conn.read(spreadsheet=SHEET_URL, worksheet="Deudas_Activas").dropna(subset=['Deuda'])
-        c = conn.read(spreadsheet=SHEET_URL, worksheet="Configuracion").dropna(subset=['Parametro'])
+        # El ttl=0 aquí adentro obliga a la conexión a NO usar su memoria interna oculta
+        t = conn.read(spreadsheet=SHEET_URL, worksheet="Transacciones", ttl=0).dropna(subset=['Monto'])
+        f = conn.read(spreadsheet=SHEET_URL, worksheet="Gastos_Fijos", ttl=0).dropna(subset=['Concepto'])
+        d = conn.read(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", ttl=0).dropna(subset=['Deuda'])
+        c = conn.read(spreadsheet=SHEET_URL, worksheet="Configuracion", ttl=0).dropna(subset=['Parametro'])
         
         # Asegurar formatos correctos
         t['Monto'] = pd.to_numeric(t['Monto'], errors='coerce').fillna(0)
@@ -200,14 +201,13 @@ elif menu == "💸 Cargar Gasto":
                     "Fecha": fecha.strftime("%Y-%m-%d"), "Descripcion": desc,
                     "Monto": monto, "Categoria": categoria, "Medio_Pago": medio
                 }])
-                # Se eliminan las columnas generadas en memoria antes de enviar a Sheets
                 df_limpio = df_trans.drop(columns=['Fecha_Obj', 'Mes_Año'], errors='ignore')
                 df_actualizado = pd.concat([df_limpio, nuevo_dato], ignore_index=True)
                 
                 conn.update(spreadsheet=SHEET_URL, worksheet="Transacciones", data=df_actualizado)
                 st.cache_data.clear()
                 st.success("✅ Gasto de 1 pago guardado. Actualizando pantalla...")
-                st.rerun() # Fuerza la actualización visual inmediata
+                st.rerun()
                 
             else:
                 if tipo_cuota == "2. Cuotas fijas (con recargo)" and valor_cuota_manual <= 0:
@@ -234,7 +234,7 @@ elif menu == "💸 Cargar Gasto":
                     conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_actualizado)
                     st.cache_data.clear()
                     st.success(f"✅ Compra agendada para {cuotas} meses. Actualizando pantalla...")
-                    st.rerun() # Fuerza la actualización visual inmediata
+                    st.rerun()
         else:
             st.error("Ingresa una descripción y monto válido.")
 
