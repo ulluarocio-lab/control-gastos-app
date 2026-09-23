@@ -17,9 +17,11 @@ def formato_moneda(valor):
 conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1_lnER4_Y_BtLksTcwFv1tgfWqLupo5tU6aMjRwJrJBA/edit"
 
+# Agregamos Tarjeta Carrefour a la lista
 MEDIOS_DE_PAGO = [
     "Efectivo", "Dinero en cuenta", "Descubierto", "Mercado Crédito",
-    "Tarjeta de Crédito - Provincia", "Tarjeta Naranja", "Tarjeta Visa - Santander"
+    "Tarjeta de Crédito - Provincia", "Tarjeta Naranja", "Tarjeta Visa - Santander",
+    "Tarjeta Carrefour"
 ]
 
 # --- MENÚ PRINCIPAL HORIZONTAL ---
@@ -31,7 +33,7 @@ menu = st.radio("Navegación",
 # ==========================================
 # MOTOR DE CACHÉ (OPTIMIZACIÓN DE VELOCIDAD)
 # ==========================================
-@st.cache_data(ttl="10m") # Los datos se mantienen en memoria por 10 minutos o hasta guardar algo nuevo
+@st.cache_data(ttl="10m") 
 def cargar_datos_desde_sheets():
     try:
         t = conn.read(spreadsheet=SHEET_URL, worksheet="Transacciones").dropna(subset=['Monto'])
@@ -50,7 +52,6 @@ def cargar_datos_desde_sheets():
         st.error(f"Error al leer bases de datos. Detalle: {e}")
         st.stop()
 
-# Llamada a la función optimizada
 df_trans, df_fijos, df_deudas, df_config = cargar_datos_desde_sheets()
 
 # --- MEMORIA DEL SUELDO (MENÚ LATERAL) ---
@@ -125,7 +126,12 @@ if menu == "📊 Dashboard Analítico":
     st.markdown("---")
     
     st.subheader("💳 Consumo a Crédito (A pagar próximo mes)")
-    tarjetas = ["Tarjeta de Crédito - Provincia", "Tarjeta Naranja", "Tarjeta Visa - Santander"]
+    
+    # Agregamos Tarjeta Carrefour a la alerta del Dashboard
+    tarjetas = [
+        "Tarjeta de Crédito - Provincia", "Tarjeta Naranja", 
+        "Tarjeta Visa - Santander", "Tarjeta Carrefour"
+    ]
     
     gasto_tarjetas = df_trans_mes[df_trans_mes['Medio_Pago'].isin(tarjetas)]['Monto'].sum()
     gasto_mc = df_trans_mes[df_trans_mes['Medio_Pago'] == 'Mercado Crédito']['Monto'].sum()
