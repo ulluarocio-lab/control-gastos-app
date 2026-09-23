@@ -146,7 +146,7 @@ if menu == "📊 Dashboard Analítico":
         st.dataframe(df_trans_mes.drop(columns=['Fecha_Obj', 'Mes_Año'], errors='ignore'), use_container_width=True)
 
 # ==========================================
-# PANTALLA 2: CARGAR GASTO (Actualizada sin st.form para reacción en vivo)
+# PANTALLA 2: CARGAR GASTO
 # ==========================================
 elif menu == "💸 Cargar Gasto":
     st.title("💸 Registrar Nuevo Gasto")
@@ -160,12 +160,18 @@ elif menu == "💸 Cargar Gasto":
     
     st.markdown("---")
     
-    # Lógica condicional para créditos: al no estar en un st.form, esto reacciona de inmediato
+    # Lógica condicional para créditos con opciones rápidas de cuotas
     es_credito = "Tarjeta" in medio or "Crédito" in medio
     if es_credito:
         st.markdown("💳 **Opciones de Financiación**")
-        cuotas = st.number_input("Cantidad de Cuotas", min_value=1, max_value=36, value=1, step=1)
         
+        opcion_cuotas = st.selectbox("Cantidad de Cuotas", ["1", "3", "6", "9", "12", "Otra cantidad"])
+        
+        if opcion_cuotas == "Otra cantidad":
+            cuotas = st.number_input("Ingresa la cantidad exacta de cuotas", min_value=2, max_value=72, value=2, step=1)
+        else:
+            cuotas = int(opcion_cuotas)
+            
         tipo_cuota = "1 Pago"
         valor_cuota_manual = 0.0
         
@@ -198,7 +204,7 @@ elif menu == "💸 Cargar Gasto":
             else:
                 # Gasto en cuotas (Va a la agenda de Deudas Activas)
                 if tipo_cuota == "2. Cuotas fijas (con recargo)" and valor_cuota_manual <= 0:
-                    st.error("🚨 Seleccionaste cuotas con recargo. Debes ingresar el valor de la cuota mensual.")
+                    st.error("🚨 Seleccionaste cuotas con recargo. Debes ingresar el valor exacto de la cuota mensual.")
                 else:
                     if tipo_cuota == "1. Cuotas sin interés":
                         valor_cuota_mensual = monto / cuotas
@@ -219,7 +225,7 @@ elif menu == "💸 Cargar Gasto":
                     df_deudas_actualizado = pd.concat([df_deudas_actual, nueva_deuda], ignore_index=True)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_actualizado)
                     
-                    st.success(f"✅ Compra agendada para los próximos {cuotas} meses.\nSe descontarán **${valor_cuota_mensual:,.2f}** mensuales automáticamente.")
+                    st.success(f"✅ Compra agendada para los próximos {cuotas} meses.\nSe descontarán **${valor_cuota_mensual:,.2f}** mensuales automáticamente de tu disponible.")
                     st.cache_data.clear()
         else:
             st.error("Ingresa una descripción y monto válido.")
