@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
+import time 
 
 # --- CONFIGURACIÓN BÁSICA ---
 st.set_page_config(page_title="Mis Finanzas", page_icon="📱", layout="wide")
@@ -30,18 +31,16 @@ menu = st.radio("Navegación",
                 label_visibility="collapsed")
 
 # ==========================================
-# MOTOR DE CACHÉ (CORREGIDO CON TTL=0 INTERNO)
+# MOTOR DE CACHÉ
 # ==========================================
 @st.cache_data(ttl=600) 
 def cargar_datos_desde_sheets():
     try:
-        # El ttl=0 aquí adentro obliga a la conexión a NO usar su memoria interna oculta
         t = conn.read(spreadsheet=SHEET_URL, worksheet="Transacciones", ttl=0).dropna(subset=['Monto'])
         f = conn.read(spreadsheet=SHEET_URL, worksheet="Gastos_Fijos", ttl=0).dropna(subset=['Concepto'])
         d = conn.read(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", ttl=0).dropna(subset=['Deuda'])
         c = conn.read(spreadsheet=SHEET_URL, worksheet="Configuracion", ttl=0).dropna(subset=['Parametro'])
         
-        # Asegurar formatos correctos
         t['Monto'] = pd.to_numeric(t['Monto'], errors='coerce').fillna(0)
         f['Monto'] = pd.to_numeric(f['Monto'], errors='coerce').fillna(0)
         d['Cuota_Mensual'] = pd.to_numeric(d['Cuota_Mensual'], errors='coerce').fillna(0)
@@ -64,19 +63,19 @@ except:
     sueldo_guardado = 0.0
 
 with st.sidebar.form("form_sueldo"):
-    nuevo_sueldo = st.number_input("Sueldo del mes ($)", min_value=0.0, value=float(sueldo_guardado), step=50000.0)
+    nuevo_sueldo = st.number_input("Sueldo Base ($)", min_value=0.0, value=float(sueldo_guardado), step=50000.0)
     if st.form_submit_button("Guardar Sueldo"):
         df_config.loc[df_config['Parametro'] == 'Sueldo', 'Valor'] = nuevo_sueldo
         conn.update(spreadsheet=SHEET_URL, worksheet="Configuracion", data=df_config)
         st.success("Sueldo guardado en memoria.")
         st.cache_data.clear()
+        time.sleep(1.5)
         st.rerun()
 
 # --- FILTRO DE HISTORIAL (MENÚ LATERAL) ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("📅 Historial Mensual")
 
-# Generar columnas de fecha internamente (sin enviarlas a Sheets)
 if not df_trans.empty:
     df_trans = df_trans.copy()
     df_trans['Fecha_Obj'] = pd.to_datetime(df_trans['Fecha'], errors='coerce')
@@ -97,52 +96,67 @@ else:
     df_trans_mes = df_trans
 
 # ==========================================
-# PANTALLA 1: DASHBOARD ANALÍTICO
+# PANTALLA 1: DASHBOARD ANALÍTICO (NUEVA LÓGICA)
 # ==========================================
 if menu == "📊 Dashboard Analítico":
     st.title(f"📊 Análisis Financiero: {mes_seleccionado}")
     
+    # 1. Separar los medios de pago
+    medios_contado = ["Efectivo", "Dinero en cuenta", "Descubierto"]
+    medios_credito = [
+        "Mercado Crédito", "Tarjeta de Crédito - Provincia", 
+        "Tarjeta Naranja", "Tarjeta Visa - Santander", "Tarjeta Carrefour"
+    ]
+    
+    # 2. Sumatorias
     total_fijos = df_fijos[~df_fijos['Concepto'].str.contains("Tarjeta", case=False, na=False)]['Monto'].sum()
     total_cuotas = df_deudas['Cuota_Mensual'].sum()
-    total_variables = df_trans_mes['Monto'].sum()
-    disponible = nuevo_sueldo - total_fijos - total_cuotas - total_variables
     
-    st.subheader("Desglose de tu Dinero")
+    variables_contado = df_trans_mes[df_trans_mes['Medio_Pago'].isin(medios_contado)]['Monto'].sum()
+    variables_credito = df_trans_mes[df_trans_mes['Medio_Pago'].isin(medios_credito)]['Monto'].sum()
     
+    # 3. Fórmulas de Disponible
+    disponible_actual = nuevo_sueldo - total_fijos - variables_contado
+    deuda_proximo_mes = variables_credito + total_cuotas
+    disponible_futuro = nuevo_sueldo - total_fijos - deuda_proximo_mes
+    
+    # Botón Ojito
     if st.button("👁️ Mostrar / Ocultar Saldos"):
         st.session_state.mostrar_saldo = not st.session_state.mostrar_saldo
         st.rerun()
     
-    col1, col2, col3, col4, col5 = st.columns(5)
+    st.markdown("---")
+    
+    # --- SECCIÓN: EL MES ACTUAL ---
+    st.subheader("💵 Tu Billetera HOY (Plata real en cuenta)")
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("1. Sueldo", formato_moneda(nuevo_sueldo))
     col2.metric("2. Gastos Fijos", formato_moneda(total_fijos))
-    col3.metric("3. Cuotas Deudas", formato_moneda(total_cuotas))
-    col4.metric("4. Variables Totales", formato_moneda(total_variables))
+    col3.metric("3. Gastos Contado/Débito", formato_moneda(variables_contado))
     
-    if disponible >= 0:
-        col5.metric("✅ DISPONIBLE REAL", formato_moneda(disponible))
+    if disponible_actual >= 0:
+        col4.metric("✅ DISPONIBLE HOY", formato_moneda(disponible_actual))
     else:
-        delta_texto = "En Rojo" if st.session_state.mostrar_saldo else None
-        col5.metric("🚨 DISPONIBLE REAL", formato_moneda(disponible), delta=delta_texto, delta_color="inverse")
+        col4.metric("🚨 DISPONIBLE HOY", formato_moneda(disponible_actual), delta="En Rojo" if st.session_state.mostrar_saldo else None, delta_color="inverse")
         
     st.markdown("---")
-    st.subheader("💳 Consumo a Crédito (A pagar próximo mes)")
     
-    tarjetas = [
-        "Tarjeta de Crédito - Provincia", "Tarjeta Naranja", 
-        "Tarjeta Visa - Santander", "Tarjeta Carrefour"
-    ]
+    # --- SECCIÓN: EL MES QUE VIENE ---
+    st.subheader("💳 Compromisos PRÓXIMO MES (A pagar con el próximo sueldo)")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("1. Sueldo Próximo", formato_moneda(nuevo_sueldo))
+    c2.metric("2. Tarjetas (1 pago)", formato_moneda(variables_credito))
+    c3.metric("3. Cuotas / Préstamos", formato_moneda(total_cuotas))
     
-    gasto_tarjetas = df_trans_mes[df_trans_mes['Medio_Pago'].isin(tarjetas)]['Monto'].sum()
-    gasto_mc = df_trans_mes[df_trans_mes['Medio_Pago'] == 'Mercado Crédito']['Monto'].sum()
-    
-    c1, c2 = st.columns(2)
-    c1.info(f"**Total acumulado en Tarjetas:**\n### {formato_moneda(gasto_tarjetas)}")
-    c2.warning(f"**Total acumulado en Mercado Crédito:**\n### {formato_moneda(gasto_mc)}")
+    if disponible_futuro >= 0:
+        c4.metric("🔮 DISPONIBLE FUTURO", formato_moneda(disponible_futuro))
+    else:
+        c4.metric("🚨 DISPONIBLE FUTURO", formato_moneda(disponible_futuro), delta="Faltará plata" if st.session_state.mostrar_saldo else None, delta_color="inverse")
     
     st.markdown("---")
-    st.subheader("🛒 ¿En qué se fue el dinero variable?")
     
+    # --- ANÁLISIS POR CATEGORÍA ---
+    st.subheader("🛒 ¿En qué se fue el dinero? (Total gastos)")
     if not df_trans_mes.empty:
         gastos_categoria = df_trans_mes.groupby('Categoria')['Monto'].sum().sort_values(ascending=False)
         col_chart, col_data = st.columns([2, 1])
@@ -150,8 +164,6 @@ if menu == "📊 Dashboard Analítico":
             st.bar_chart(gastos_categoria)
         with col_data:
             st.dataframe(gastos_categoria, use_container_width=True)
-            ocio = gastos_categoria.get("Ocio/Salidas", 0)
-            st.success(f"🎭 **Entretenimiento:**\n{formato_moneda(ocio)}")
     else:
         st.write("No hay gastos registrados en este mes.")
         
@@ -205,8 +217,9 @@ elif menu == "💸 Cargar Gasto":
                 df_actualizado = pd.concat([df_limpio, nuevo_dato], ignore_index=True)
                 
                 conn.update(spreadsheet=SHEET_URL, worksheet="Transacciones", data=df_actualizado)
+                st.success("✅ Gasto guardado. Actualizando pantalla en 2 segundos...")
                 st.cache_data.clear()
-                st.success("✅ Gasto de 1 pago guardado. Actualizando pantalla...")
+                time.sleep(2)
                 st.rerun()
                 
             else:
@@ -232,8 +245,9 @@ elif menu == "💸 Cargar Gasto":
                     df_deudas_actualizado = pd.concat([df_deudas, nueva_deuda], ignore_index=True)
                     
                     conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_actualizado)
+                    st.success(f"✅ Compra agendada para {cuotas} meses. Actualizando pantalla en 2 segundos...")
                     st.cache_data.clear()
-                    st.success(f"✅ Compra agendada para {cuotas} meses. Actualizando pantalla...")
+                    time.sleep(2) 
                     st.rerun()
         else:
             st.error("Ingresa una descripción y monto válido.")
@@ -251,6 +265,7 @@ elif menu == "⚙️ Gastos Fijos":
         conn.update(spreadsheet=SHEET_URL, worksheet="Gastos_Fijos", data=df_editado)
         st.success("¡Actualizado!")
         st.cache_data.clear()
+        time.sleep(1.5)
         st.rerun()
     
     total_fijos_vista = pd.to_numeric(df_editado['Monto'], errors='coerce').sum()
@@ -272,6 +287,7 @@ elif menu == "🏦 Panel de Deudas":
             conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_calc)
             st.success("✅ Cuotas descontadas. Los consumos finalizados se eliminaron automáticamente.")
             st.cache_data.clear()
+            time.sleep(2)
             st.rerun()
     
     st.markdown("---")
@@ -287,4 +303,5 @@ elif menu == "🏦 Panel de Deudas":
         conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_edit)
         st.success("¡Deudas actualizadas!")
         st.cache_data.clear()
+        time.sleep(2)
         st.rerun()
