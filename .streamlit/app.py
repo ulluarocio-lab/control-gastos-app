@@ -28,7 +28,7 @@ menu = st.radio("Navegación",
                 label_visibility="collapsed")
 
 # ==========================================
-# MOTOR DE CACHÉ
+# MOTOR DE CACHÉ Y LECTURA
 # ==========================================
 @st.cache_data(ttl=600) 
 def cargar_datos_desde_sheets():
@@ -43,7 +43,6 @@ def cargar_datos_desde_sheets():
         d['Cuota_Mensual'] = pd.to_numeric(d['Cuota_Mensual'], errors='coerce').fillna(0)
         d['Cuotas_Restantes'] = pd.to_numeric(d['Cuotas_Restantes'], errors='coerce').fillna(0)
         
-        # Compatibilidad: Si la columna no existe, la crea (para gastos viejos)
         if 'Es_Fijo' not in t.columns:
             t['Es_Fijo'] = False
         else:
@@ -56,28 +55,43 @@ def cargar_datos_desde_sheets():
 
 df_trans, df_fijos, df_deudas, df_config = cargar_datos_desde_sheets()
 
-# --- MEMORIA DEL SUELDO ---
+# --- LECTURA DE CONFIGURACIÓN FINANCIERA ---
+def obtener_parametro(nombre, default):
+    try:
+        return float(df_config[df_config['Parametro'] == nombre]['Valor'].iloc[0])
+    except:
+        return default
+
+fondo_diario = obtener_parametro('Fondo_Diario', 0.0)
+sueldo_proximo = obtener_parametro('Sueldo_Proximo', 0.0)
+dia_cierre = int(obtener_parametro('Dia_Cierre', 25))
+
+# --- PANEL LATERAL: ASESOR FINANCIERO ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("💰 Tus Ingresos")
+st.sidebar.subheader("⚙️ Parámetros del Mes")
 
-try:
-    sueldo_guardado = float(df_config[df_config['Parametro'] == 'Sueldo']['Valor'].iloc[0])
-except:
-    sueldo_guardado = 0.0
-
-with st.sidebar.form("form_sueldo"):
-    nuevo_sueldo = st.number_input("Sueldo Base Mensual ($)", min_value=0.0, value=float(sueldo_guardado), step=50000.0)
-    if st.form_submit_button("Guardar Sueldo"):
-        df_config.loc[df_config['Parametro'] == 'Sueldo', 'Valor'] = nuevo_sueldo
+with st.sidebar.form("form_config"):
+    nuevo_fondo = st.number_input("1. Saldo Inicial del mes (Billetera/Débito)", min_value=0.0, value=fondo_diario, step=10000.0, help="Plata con la que arrancas el mes para el día a día.")
+    nuevo_sueldo = st.number_input("2. Sueldo esperado (Mes que viene)", min_value=0.0, value=sueldo_proximo, step=50000.0)
+    nuevo_cierre = st.number_input("3. Día de cierre de Tarjetas", min_value=1, max_value=31, value=dia_cierre, step=1)
+    
+    if st.form_submit_button("Guardar Parámetros"):
+        # Actualizar los 3 parámetros en la base
+        for param, val in [('Fondo_Diario', nuevo_fondo), ('Sueldo_Proximo', nuevo_sueldo), ('Dia_Cierre', nuevo_cierre)]:
+            if param in df_config['Parametro'].values:
+                df_config.loc[df_config['Parametro'] == param, 'Valor'] = val
+            else:
+                df_config = pd.concat([df_config, pd.DataFrame([{'Parametro': param, 'Valor': val}])], ignore_index=True)
+        
         conn.update(spreadsheet=SHEET_URL, worksheet="Configuracion", data=df_config)
-        st.success("Sueldo guardado.")
+        st.success("Configuración guardada.")
         st.cache_data.clear()
         time.sleep(1.5)
         st.rerun()
 
 # --- HISTORIAL MENSUAL ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Historial Mensual")
+st.sidebar.subheader("📅 Historial")
 
 if not df_trans.empty:
     df_trans = df_trans.copy()
@@ -91,40 +105,30 @@ mes_actual = datetime.today().strftime('%Y-%m')
 if mes_actual not in meses_disponibles:
     meses_disponibles.insert(0, mes_actual)
 
-mes_seleccionado = st.sidebar.selectbox("Selecciona el mes a analizar:", meses_disponibles)
-
-if not df_trans.empty:
-    df_trans_mes = df_trans[df_trans['Mes_Año'] == mes_seleccionado]
-else:
-    df_trans_mes = df_trans
+mes_seleccionado = st.sidebar.selectbox("Mes de análisis:", meses_disponibles)
+df_trans_mes = df_trans[df_trans['Mes_Año'] == mes_seleccionado] if not df_trans.empty else df_trans
 
 # ==========================================
 # PANTALLA 1: DASHBOARD ANALÍTICO
 # ==========================================
 if menu == "📊 Dashboard Analítico":
-    st.title(f"📊 Análisis Financiero: {mes_seleccionado}")
+    st.title(f"📊 Análisis Estratégico: {mes_seleccionado}")
     
     medios_contado = ["Efectivo", "Dinero en cuenta", "Descubierto"]
-    medios_credito = [
-        "Mercado Crédito", "Tarjeta de Crédito - Provincia", 
-        "Tarjeta Naranja", "Tarjeta Visa - Santander", "Tarjeta Carrefour"
-    ]
+    medios_credito = ["Mercado Crédito", "Tarjeta de Crédito - Provincia", "Tarjeta Naranja", "Tarjeta Visa - Santander", "Tarjeta Carrefour"]
     
     total_fijos = df_fijos[~df_fijos['Concepto'].str.contains("Tarjeta", case=False, na=False)]['Monto'].sum()
     total_cuotas = df_deudas['Cuota_Mensual'].sum()
     
-    # SOLO sumamos como variables los gastos que NO fueron marcados como fijos
-    if not df_trans_mes.empty:
-        df_vars = df_trans_mes[df_trans_mes['Es_Fijo'] == False]
-    else:
-        df_vars = pd.DataFrame(columns=['Medio_Pago', 'Monto'])
+    df_vars = df_trans_mes[df_trans_mes['Es_Fijo'] == False] if not df_trans_mes.empty else pd.DataFrame(columns=['Medio_Pago', 'Monto'])
         
     variables_contado = df_vars[df_vars['Medio_Pago'].isin(medios_contado)]['Monto'].sum()
     variables_credito = df_vars[df_vars['Medio_Pago'].isin(medios_credito)]['Monto'].sum()
     
-    disponible_actual = nuevo_sueldo - total_fijos - variables_contado
+    # NUEVA FÓRMULA DE LIQUIDEZ Y FUTURO
+    liquidez_hoy = fondo_diario - variables_contado
     deuda_proximo_mes = variables_credito + total_cuotas
-    disponible_futuro = nuevo_sueldo - total_fijos - deuda_proximo_mes
+    disponible_futuro = sueldo_proximo - total_fijos - deuda_proximo_mes
     
     if st.button("👁️ Mostrar / Ocultar Saldos"):
         st.session_state.mostrar_saldo = not st.session_state.mostrar_saldo
@@ -132,29 +136,29 @@ if menu == "📊 Dashboard Analítico":
     
     st.markdown("---")
     
-    st.subheader("💵 Tu Billetera HOY (Plata real en cuenta)")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("1. Sueldo", formato_moneda(nuevo_sueldo))
-    col2.metric("2. Presupuesto Fijo", formato_moneda(total_fijos))
-    col3.metric("3. Gastos Variables (Día a Día)", formato_moneda(variables_contado))
+    st.subheader("💵 Tu Liquidez HOY (Plata en mano / Débito)")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("1. Fondo Mensual Asignado", formato_moneda(fondo_diario))
+    col2.metric("2. Gastos Variables (Día a Día)", formato_moneda(variables_contado))
     
-    if disponible_actual >= 0:
-        col4.metric("✅ DISPONIBLE HOY", formato_moneda(disponible_actual))
+    if liquidez_hoy >= 0:
+        col3.metric("✅ DISPONIBLE REAL HOY", formato_moneda(liquidez_hoy))
     else:
-        col4.metric("🚨 DISPONIBLE HOY", formato_moneda(disponible_actual), delta="En Rojo" if st.session_state.mostrar_saldo else None, delta_color="inverse")
+        col3.metric("🚨 DISPONIBLE REAL HOY", formato_moneda(liquidez_hoy), delta="Sin fondos" if st.session_state.mostrar_saldo else None, delta_color="inverse")
         
     st.markdown("---")
     
-    st.subheader("💳 Compromisos PRÓXIMO MES")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("1. Sueldo Próximo", formato_moneda(nuevo_sueldo))
-    c2.metric("2. Tarjetas (1 pago)", formato_moneda(variables_credito))
-    c3.metric("3. Cuotas / Préstamos", formato_moneda(total_cuotas))
+    st.subheader("💳 Compromisos PRÓXIMO MES (Para tu próximo sueldo)")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Sueldo Esperado", formato_moneda(sueldo_proximo))
+    c2.metric("Presupuesto Fijo", formato_moneda(total_fijos))
+    c3.metric("Tarjetas (1 pago)", formato_moneda(variables_credito))
+    c4.metric("Cuotas Activas", formato_moneda(total_cuotas))
     
     if disponible_futuro >= 0:
-        c4.metric("🔮 DISPONIBLE FUTURO", formato_moneda(disponible_futuro))
+        c5.metric("🔮 DISPONIBLE FUTURO", formato_moneda(disponible_futuro))
     else:
-        c4.metric("🚨 DISPONIBLE FUTURO", formato_moneda(disponible_futuro), delta="Faltará plata" if st.session_state.mostrar_saldo else None, delta_color="inverse")
+        c5.metric("🚨 DISPONIBLE FUTURO", formato_moneda(disponible_futuro), delta="Faltará plata" if st.session_state.mostrar_saldo else None, delta_color="inverse")
     
     st.markdown("---")
     
@@ -185,23 +189,25 @@ elif menu == "💸 Cargar Gasto":
     monto = st.number_input("Monto de la compra ($)", min_value=0.0, step=100.0)
     
     st.markdown("---")
-    # Nuevo checkbox para que el gasto fijo no reste doble
-    es_fijo_check = st.checkbox("📌 Este es un Gasto Fijo (No restarlo del disponible de hoy, ya está descontado en el Presupuesto)")
+    es_fijo_check = st.checkbox("📌 Este es un Gasto Fijo (Ya estaba contemplado en el presupuesto mensual)")
     
     es_credito = "Tarjeta" in medio or "Crédito" in medio
+    post_cierre = False
+    
     if es_credito:
         st.markdown("---")
-        st.markdown("💳 **Opciones de Financiación**")
-        opcion_cuotas = st.selectbox("Cantidad de Cuotas", ["1", "3", "6", "9", "12", "Otra cantidad"])
+        st.markdown("💳 **Opciones de Tarjeta y Financiación**")
         
-        if opcion_cuotas == "Otra cantidad":
-            cuotas = st.number_input("Ingresa la cantidad exacta de cuotas", min_value=2, max_value=72, value=2, step=1)
-        else:
-            cuotas = int(opcion_cuotas)
+        # SISTEMA AUTOMÁTICO DE CIERRE DE TARJETA
+        st.info(f"💡 Configuraste tus cierres para el día **{dia_cierre}**. La aplicación lo detectará automáticamente.")
+        es_post_cierre_defecto = fecha.day >= dia_cierre
+        post_cierre = st.checkbox("⏩ Gasto Post-Cierre (Impacta directo en el resumen del mes que viene)", value=es_post_cierre_defecto)
+        
+        opcion_cuotas = st.selectbox("Cantidad de Cuotas", ["1", "3", "6", "9", "12", "Otra cantidad"])
+        cuotas = st.number_input("Ingresa la cantidad exacta", min_value=2, max_value=72, value=2, step=1) if opcion_cuotas == "Otra cantidad" else int(opcion_cuotas)
             
         tipo_cuota = "1 Pago"
         valor_cuota_manual = 0.0
-        
         if cuotas > 1:
             tipo_cuota = st.radio("Tipo de financiación:", ["1. Cuotas sin interés", "2. Cuotas fijas (con recargo)"], horizontal=True)
             if tipo_cuota == "2. Cuotas fijas (con recargo)":
@@ -209,47 +215,46 @@ elif menu == "💸 Cargar Gasto":
     else:
         cuotas = 1
         tipo_cuota = "1 Pago"
-        valor_cuota_manual = 0.0
 
     if st.button("Guardar Gasto"):
         if monto > 0 and desc:
-            if cuotas == 1:
+            
+            # LÓGICA DE DERIVACIÓN (Contado vs Deudas Futuras)
+            va_a_transacciones = not es_credito or (es_credito and cuotas == 1 and not post_cierre)
+            
+            if va_a_transacciones:
                 nuevo_dato = pd.DataFrame([{
                     "Fecha": fecha.strftime("%Y-%m-%d"), "Descripcion": desc,
-                    "Monto": monto, "Categoria": categoria, "Medio_Pago": medio,
-                    "Es_Fijo": es_fijo_check
+                    "Monto": monto, "Categoria": categoria, "Medio_Pago": medio, "Es_Fijo": es_fijo_check
                 }])
                 df_limpio = df_trans.drop(columns=['Fecha_Obj', 'Mes_Año'], errors='ignore')
                 df_actualizado = pd.concat([df_limpio, nuevo_dato], ignore_index=True)
-                
                 conn.update(spreadsheet=SHEET_URL, worksheet="Transacciones", data=df_actualizado)
-                st.success("✅ Gasto guardado. Actualizando pantalla...")
-                st.cache_data.clear()
-                time.sleep(2)
-                st.rerun()
+                st.success("✅ Gasto procesado en el mes actual. Actualizando...")
                 
             else:
+                # Si es cuotas, o es 1 pago pero POST-CIERRE, va al panel de deudas
                 if tipo_cuota == "2. Cuotas fijas (con recargo)" and valor_cuota_manual <= 0:
                     st.error("🚨 Ingresa el valor exacto de la cuota mensual.")
                     st.stop()
-                else:
-                    valor_cuota_mensual = (monto / cuotas) if tipo_cuota == "1. Cuotas sin interés" else valor_cuota_manual
-                    saldo_total = valor_cuota_mensual * cuotas
-                    detalle_tipo = "Sin interés" if tipo_cuota == "1. Cuotas sin interés" else "Con interés"
-                    
-                    nueva_deuda = pd.DataFrame([{
-                        "Deuda": f"{desc} ({medio} - {cuotas} cuotas {detalle_tipo})",
-                        "Saldo_Total": saldo_total,
-                        "Cuota_Mensual": valor_cuota_mensual,
-                        "Cuotas_Restantes": cuotas
-                    }])
-                    df_deudas_actualizado = pd.concat([df_deudas, nueva_deuda], ignore_index=True)
-                    
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_actualizado)
-                    st.success(f"✅ Compra agendada para {cuotas} meses. Actualizando...")
-                    st.cache_data.clear()
-                    time.sleep(2) 
-                    st.rerun()
+                
+                valor_cuota_mensual = (monto / cuotas) if tipo_cuota == "1. Cuotas sin interés" else (valor_cuota_manual if cuotas > 1 else monto)
+                saldo_total = valor_cuota_mensual * cuotas
+                detalle_tipo = "Post-Cierre (1 pago)" if cuotas == 1 else ("Sin interés" if tipo_cuota == "1. Cuotas sin interés" else "Con interés")
+                
+                nueva_deuda = pd.DataFrame([{
+                    "Deuda": f"{desc} ({medio} - {cuotas} cuotas {detalle_tipo})",
+                    "Saldo_Total": saldo_total,
+                    "Cuota_Mensual": valor_cuota_mensual,
+                    "Cuotas_Restantes": cuotas
+                }])
+                df_deudas_actualizado = pd.concat([df_deudas, nueva_deuda], ignore_index=True)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_actualizado)
+                st.success("✅ Consumo derivado a la agenda de compromisos futuros. Actualizando...")
+
+            st.cache_data.clear()
+            time.sleep(2)
+            st.rerun()
         else:
             st.error("Ingresa una descripción y monto válido.")
 
@@ -258,7 +263,7 @@ elif menu == "💸 Cargar Gasto":
 # ==========================================
 elif menu == "⚙️ Gastos Fijos":
     st.title("⚙️ Presupuesto de Gastos Fijos")
-    st.info("💡 Estos montos se reservan automáticamente de tu sueldo todos los meses. Cuando pagues uno de estos, ve a 'Cargar Gasto' y marca la casilla 'Es un Gasto Fijo'.")
+    st.info("💡 Estos montos se restan automáticamente de tu sueldo futuro para calcular tu disponible. Cuando pagues físicamente uno de estos, ve a 'Cargar Gasto' y marca la casilla 'Es un Gasto Fijo'.")
     
     df_fijos_pantalla = df_fijos[~df_fijos['Concepto'].str.contains("Tarjeta", case=False, na=False)]
     df_editado = st.data_editor(df_fijos_pantalla, num_rows="dynamic", use_container_width=True,
@@ -280,7 +285,7 @@ elif menu == "⚙️ Gastos Fijos":
 elif menu == "🏦 Panel de Deudas":
     st.title("🏦 Panel de Deudas y Cuotas")
     
-    if st.button("⏩ Procesar pago del mes (Resta 1 cuota a todo)"):
+    if st.button("⏩ Procesar pago de Tarjetas (Descuenta 1 cuota a todo)"):
         if not df_deudas.empty:
             df_deudas_calc = df_deudas.copy()
             df_deudas_calc['Cuotas_Restantes'] = df_deudas_calc['Cuotas_Restantes'] - 1
@@ -288,13 +293,13 @@ elif menu == "🏦 Panel de Deudas":
             df_deudas_calc = df_deudas_calc[df_deudas_calc['Cuotas_Restantes'] > 0]
             
             conn.update(spreadsheet=SHEET_URL, worksheet="Deudas_Activas", data=df_deudas_calc)
-            st.success("✅ Cuotas descontadas. Los consumos finalizados se eliminaron automáticamente.")
+            st.success("✅ Cuotas descontadas. Consumos liquidados eliminados.")
             st.cache_data.clear()
             time.sleep(2)
             st.rerun()
     
     st.markdown("---")
-    st.subheader("🔴 Tus Cuotas Activas")
+    st.subheader("🔴 Tus Cuotas y Post-Cierres Activos")
     
     df_deudas_edit = st.data_editor(df_deudas, num_rows="dynamic", use_container_width=True,
                                     column_config={
